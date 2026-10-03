@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>동작별 센서 기록</title>
+<style>
+:root{
+  --bg:#eef1ee; --ink:#18201b; --muted:#5d6b62; --line:#c9d2cb;
+  --ok:#1d7a46; --bad:#b3261e; --wait:#8a6d00; --panel:#ffffff; --btn:#18201b; --btnink:#eef1ee;
+  --plot:#1d6fa5; --grid:#dfe5e0;
+  box-sizing:border-box;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121614; --ink:#e4ebe6; --muted:#93a198; --line:#2c3530;
+    --ok:#5fd18f; --bad:#ff8a80; --wait:#e6c34d; --panel:#1a201c; --btn:#e4ebe6; --btnink:#121614;
+    --plot:#6cb8ea; --grid:#26302a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121614; --ink:#e4ebe6; --muted:#93a198; --line:#2c3530;
+  --ok:#5fd18f; --bad:#ff8a80; --wait:#e6c34d; --panel:#1a201c; --btn:#e4ebe6; --btnink:#121614;
+  --plot:#6cb8ea; --grid:#26302a;
+}
+*{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  line-height:1.5}
+body.locked{overflow:hidden}
+main{max-width:560px;margin:0 auto;
+  padding:calc(20px + env(safe-area-inset-top,0px)) 16px calc(40px + env(safe-area-inset-bottom,0px))}
+h1{font-size:1.45rem;margin:4px 0 4px;letter-spacing:-0.01em}
+h2{font-size:1rem;margin:0 0 10px}
+.sub{color:var(--muted);margin:0 0 18px;font-size:.95rem}
+button{font:inherit;border:0;border-radius:10px;padding:14px 16px;width:100%;
+  background:var(--btn);color:var(--btnink);font-weight:700;font-size:1rem;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line);font-weight:600}
+button.small{width:auto;padding:8px 12px;font-size:.9rem}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.panel{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.status{font-size:.9rem;color:var(--muted);margin-top:8px;font-variant-numeric:tabular-nums}
+.status b{color:var(--ink)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{width:auto;padding:10px 14px;border-radius:999px;background:transparent;color:var(--ink);
+  border:1.5px solid var(--line);font-weight:600;font-size:.95rem}
+.chip[aria-pressed="true"]{background:var(--btn);color:var(--btnink);border-color:var(--btn)}
+input[type=text]{font:inherit;width:100%;margin-top:10px;padding:12px;border-radius:10px;
+  border:1.5px solid var(--line);background:var(--bg);color:var(--ink)}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.label-now{margin-top:12px;font-size:.95rem}
+.label-now b{font-size:1.05rem}
+#rec{margin-top:14px;padding:18px;font-size:1.1rem}
+.list{list-style:none;padding:0;margin:0}
+.item{border-top:1px solid var(--line);padding:12px 0}
+.item:first-child{border-top:0;padding-top:0}
+.item-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.item-title{font-weight:700}
+.item-meta{color:var(--muted);font-size:.82rem;font-variant-numeric:tabular-nums}
+.warn{color:var(--bad);font-size:.82rem}
+canvas.plot{display:block;width:100%;height:150px;margin:8px 0;background:var(--bg);border-radius:8px}
+.item-btns{display:flex;gap:8px}
+.item-btns button{flex:1}
+.empty{color:var(--muted);font-size:.9rem;margin:0}
+.note{color:var(--muted);font-size:.85rem;margin-top:16px}
+
+/* 기록 중 화면 */
+#overlay{position:fixed;inset:0;z-index:100;background:#000;color:#fff;display:none;
+  flex-direction:column;align-items:center;justify-content:center;
+  touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#overlay.on{display:flex}
+#ov-phase{font-size:1.3rem;color:#9a9a9a;letter-spacing:.05em}
+#ov-time{font-size:min(38vw,11rem);font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums}
+#ov-label{font-size:1.1rem;color:#9a9a9a}
+#ov-hint{position:absolute;bottom:calc(28px + env(safe-area-inset-bottom,0px));left:16px;right:16px;
+  text-align:center;color:#5a5a5a;font-size:.9rem}
+#ov-hold{position:absolute;left:0;bottom:0;height:6px;width:0;background:#e53935}
+</style>
+</head>
+<body>
+<main>
+  <h1>동작별 센서 기록</h1>
+  <p class="sub">동작마다 센서값 기록 → CSV 저장. 기준값 정하기용.</p>
+
+  <button id="start">센서 시작</button>
+  <div class="status" id="status">센서 꺼짐</div>
+
+  <section class="panel">
+    <h2>1. 동작 라벨</h2>
+    <div class="chips" id="chips"></div>
+    <input type="text" id="custom" placeholder="직접 입력 (예: 의자에서 떨어짐)" maxlength="30">
+    <div class="label-now">현재 라벨: <b id="label-now">-</b></div>
+  </section>
+
+  <section class="panel">
+    <h2>2. 기록 시간</h2>
+    <div class="seg" id="durs"></div>
+  </section>
+
+  <button id="rec" disabled>기록 시작 (3초 후)</button>
+
+  <section class="panel">
+    <div class="item-head">
+      <h2>기록 목록</h2>
+      <span class="item-meta" id="count">0건</span>
+    </div>
+    <ul class="list" id="list"></ul>
+    <p class="empty" id="empty">아직 기록 없음</p>
+    <div class="item-btns" style="margin-top:12px">
+      <button class="ghost" id="all" disabled>전체 합쳐 CSV 저장</button>
+    </div>
+  </section>
+
+  <p class="note">
+    기록 중 화면 터치 무시. 중간 정지 = 화면 2초 길게 누르기.<br>
+    화면 꺼지면 센서 멈춤 → 기록 중 화면 켜진 상태 유지 필수.<br>
+    새로고침·페이지 닫으면 기록 사라짐 → 끝나면 CSV 저장.
+  </p>
+</main>
+
+<div id="overlay" aria-live="polite">
+  <div id="ov-phase">준비</div>
+  <div id="ov-time">3</div>
+  <div id="ov-label"></div>
+  <div id="ov-hint">2초 길게 누르면 정지</div>
+  <div id="ov-hold"></div>
+</div>
+
+<script>
+const LABELS = ['폰 꺼냄','들고 걷기','들고 뛰기','부딪힘','가방 밀기','가만히'];
+const DURS = [5,10,20];
+const COUNTDOWN = 3;
+const HOLD_MS = 2000;
+
+const $ = id => document.getElementById(id);
+
+let sensorsOn = false;
+let wakeLock = null;
+let selLabel = LABELS[0];
+let selDur = 10;
+
+// 최신 orientation 값 (motion 이벤트마다 함께 저장)
+let ori = {a:null,b:null,g:null};
+let motionCnt = 0, oriCnt = 0;
+
+// 기록 상태: idle | countdown | recording
+let phase = 'idle';
+let cur = null;           // 진행 중 시도
+let tickTimer = null;
+const attempts = [];
+let attemptNo = 0;
+
+/* ---------- UI 구성 ---------- */
+function buildChips(){
+  const box = $('chips');
+  LABELS.forEach(l => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = l; b.type = 'button';
+    b.setAttribute('aria-pressed', l === selLabel);
+    b.onclick = () => { $('custom').value = ''; selLabel = l; refreshLabel(); };
+    box.appendChild(b);
+  });
+  $('custom').addEventListener('input', () => {
+    refreshLabel();
+  });
+}
+function currentLabel(){
+  const v = $('custom').value.trim();
+  return v || selLabel;
+}
+function refreshLabel(){
+  const custom = $('custom').value.trim();
+  document.querySelectorAll('.chip').forEach(c =>
+    c.setAttribute('aria-pressed', !custom && c.textContent === selLabel));
+  $('label-now').textContent = currentLabel();
+}
+function buildDurs(){
+  const box = $('durs');
+  DURS.forEach(d => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.type = 'button'; b.textContent = d + '초';
+    b.style.width = '100%';
+    b.dataset.d = d;
+    b.onclick = () => { selDur = d; refreshDurs(); };
+    box.appendChild(b);
+  });
+  refreshDurs();
+}
+function refreshDurs(){
+  document.querySelectorAll('#durs .chip').forEach(c =>
+    c.setAttribute('aria-pressed', Number(c.dataset.d) === selDur));
+  $('rec').textContent = `기록 시작 (3초 후 ${selDur}초간)`;
+}
+
+/* ---------- 센서 · Wake Lock ---------- */
+async function requestWake(){
+  if (!('wakeLock' in navigator)) return false;
+  try{
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; updateStatus(); });
+    return true;
+  }catch(e){ wakeLock = null; return false; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible'){
+    if (sensorsOn && !wakeLock) requestWake().then(updateStatus);
+  } else if (cur && phase === 'recording'){
+    cur.hiddenDuring = true;
+  }
+});
+
+function onMotion(e){
+  motionCnt++;
+  if (phase !== 'recording' || !cur) return;
+  const t = performance.now() - cur.t0;
+  if (t > cur.dur * 1000){ finish(false); return; }
+  const g = e.accelerationIncludingGravity || {};
+  const a = e.acceleration || {};
+  const r = e.rotationRate || {};
+  cur.rows.push([
+    t,
+    g.x, g.y, g.z,
+    a.x, a.y, a.z,
+    r.alpha, r.beta, r.gamma,
+    ori.a, ori.b, ori.g
+  ]);
+}
+function onOrientation(e){
+  oriCnt++;
+  ori = {a:e.alpha, b:e.beta, g:e.gamma};
+}
+
+async function startSensors(){
+  if (sensorsOn) return;
+  try{
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+      await DeviceMotionEvent.requestPermission();
+    }
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+      await DeviceOrientationEvent.requestPermission();
+    }
+  }catch(e){}
+  window.addEventListener('devicemotion', onMotion);
+  window.addEventListener('deviceorientation', onOrientation);
+  sensorsOn = true;
+  await requestWake();
+  $('start').textContent = '센서 작동 중';
+  $('start').disabled = true;
+  $('rec').disabled = false;
+  updateStatus();
+  setInterval(() => {
+    lastRate = {m:motionCnt, o:oriCnt};
+    motionCnt = 0; oriCnt = 0;
+    updateStatus();
+  }, 1000);
+}
+let lastRate = {m:0,o:0};
+function updateStatus(){
+  if (!sensorsOn){ $('status').textContent = '센서 꺼짐'; return; }
+  $('status').innerHTML =
+    `가속도 <b>${lastRate.m}</b>회/초 · 방향 <b>${lastRate.o}</b>회/초 · 화면유지 <b>${wakeLock ? 'o' : 'x'}</b>`;
+}
+
+/* ---------- 배터리 ---------- */
+async function battery(){
+  try{
+    if (!navigator.getBattery) return null;
+    const b = await navigator.getBattery();
+    return {level: Math.round(b.level * 100), charging: b.charging};
+  }catch(e){ return null; }
+}
+
+/* ---------- 진동 ---------- */
+function vib(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} }
+
+/* ---------- 기록 흐름 ---------- */
+async function beginRecord(){
+  if (phase !== 'idle') return;
+  if (!sensorsOn) await startSensors();
+  if (!wakeLock) await requestWake();
+  cur = {
+    label: currentLabel(),
+    dur: selDur,
+    rows: [],
+    startedAt: null,
+    batteryStart: null,
+    batteryEnd: null,
+    stoppedManually: false,
+    hiddenDuring: false,
+  };
+  phase = 'countdown';
+  showOverlay(true);
+  $('ov-label').textContent = cur.label;
+  const cdEnd = performance.now() + COUNTDOWN * 1000;
+  setPhase('준비', COUNTDOWN);
+  clearInterval(tickTimer);
+  tickTimer = setInterval(() => {
+    if (phase === 'countdown'){
+      const left = cdEnd - performance.now();
+      if (left <= 0) startRecording();
+      else setPhase('준비', Math.ceil(left / 1000));
+    } else if (phase === 'recording'){
+      const left = cur.dur * 1000 - (performance.now() - cur.t0);
+      if (left <= 0) finish(false);
+      else setPhase('기록 중', Math.ceil(left / 1000));
+    }
+  }, 100);
+}
+async function startRecording(){
+  phase = 'recording';
+  cur.t0 = performance.now();
+  cur.startedAt = new Date();
+  setPhase('기록 중', cur.dur);
+  vib(300);
+  const a = cur;
+  a.batteryStart = await battery();
+}
+async function finish(manual){
+  if (phase === 'idle') return;
+  const wasRecording = phase === 'recording';
+  phase = 'idle';
+  clearInterval(tickTimer);
+  cancelHold();
+  const a = cur; cur = null;
+  ignoreClickUntil = performance.now() + 800;   // 길게 누르기 직후 손 뗄 때 아래 버튼 눌림 방지
+  if (!wasRecording){            // 카운트다운 중 취소
+    showOverlay(false);
+    return;
+  }
+  vib([200,120,200,120,200]);
+  a.stoppedManually = manual;
+  a.batteryEnd = await battery();
+  a.elapsed = a.rows.length ? a.rows[a.rows.length - 1][0] : 0;
+  a.no = ++attemptNo;
+  attempts.push(a);
+  showOverlay(false);
+  renderAttempt(a);
+}
+
+/* ---------- 기록 중 화면 · 터치 차단 ---------- */
+function setPhase(name, sec){
+  $('ov-phase').textContent = name;
+  $('ov-time').textContent = sec;
+}
+function showOverlay(on){
+  $('overlay').classList.toggle('on', on);
+  document.body.classList.toggle('locked', on);
+  if (on && document.activeElement) document.activeElement.blur();
+}
+
+let holdTimer = null, holdRaf = null, holdStart = 0;
+const ov = $('overlay');
+function block(e){ e.preventDefault(); e.stopPropagation(); }
+['click','dblclick','contextmenu','touchstart','touchmove','touchend','wheel','selectstart']
+  .forEach(t => ov.addEventListener(t, block, {passive:false}));
+ov.addEventListener('pointerdown', e => {
+  block(e);
+  if (e.isPrimary === false) return;   // 여러 손가락 터치는 무시
+  startHold();
+}, {passive:false});
+['pointerup','pointercancel','pointerleave'].forEach(t =>
+  ov.addEventListener(t, e => { block(e); cancelHold(); }, {passive:false}));
+function startHold(){
+  cancelHold();
+  holdStart = performance.now();
+  holdTimer = setTimeout(() => { cancelHold(); finish(true); }, HOLD_MS);
+  const step = () => {
+    const p = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
+    $('ov-hold').style.width = (p * 100) + '%';
+    if (holdTimer) holdRaf = requestAnimationFrame(step);
+  };
+  holdRaf = requestAnimationFrame(step);
+}
+function cancelHold(){
+  clearTimeout(holdTimer); holdTimer = null;
+  cancelAnimationFrame(holdRaf);
+  $('ov-hold').style.width = '0';
+}
+let ignoreClickUntil = 0;
+document.addEventListener('click', e => {
+  if (performance.now() < ignoreClickUntil) block(e);
+}, true);
+// 기록 중 키 입력도 무시
+document.addEventListener('keydown', e => { if (phase !== 'idle') block(e); }, true);
+
+/* ---------- CSV ---------- */
+const COLS = ['t_ms',
+  'accG_x','accG_y','accG_z',
+  'acc_x','acc_y','acc_z',
+  'rot_alpha','rot_beta','rot_gamma',
+  'ori_alpha','ori_beta','ori_gamma'];
+const META_COLS = ['battery_start','battery_end'];
+
+function num(v, d){
+  return (v === null || v === undefined || Number.isNaN(v)) ? '' : Number(v).toFixed(d);
+}
+function rowCsv(r){
+  return r.map((v, i) => num(v, i === 0 ? 1 : 4)).join(',');
+}
+function batt(b){ return b ? b.level : ''; }
+function csvCell(s){
+  s = String(s);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function attemptCsv(a){
+  const lines = [COLS.concat(META_COLS).join(',')];
+  const meta = [batt(a.batteryStart), batt(a.batteryEnd)].join(',');
+  a.rows.forEach(r => lines.push(rowCsv(r) + ',' + meta));
+  return lines.join('\n');
+}
+function allCsv(){
+  const lines = [['label','attempt'].concat(COLS, META_COLS).join(',')];
+  attempts.forEach(a => {
+    const pre = csvCell(a.label) + ',' + a.no + ',';
+    const meta = ',' + [batt(a.batteryStart), batt(a.batteryEnd)].join(',');
+    a.rows.forEach(r => lines.push(pre + rowCsv(r) + meta));
+  });
+  return lines.join('\n');
+}
+function pad(n, w=2){ return String(n).padStart(w, '0'); }
+function stamp(d){
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+function safeName(s){ return s.replace(/[\\/:*?"<>|\s]+/g, '').slice(0, 30) || '라벨없음'; }
+function download(name, text){
+  const blob = new Blob(['﻿' + text], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = name;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/* ---------- 목록 · 그래프 ---------- */
+function renderAttempt(a){
+  $('empty').style.display = 'none';
+  $('all').disabled = false;
+  $('count').textContent = attempts.length + '건';
+
+  const li = document.createElement('li');
+  li.className = 'item';
+  const rate = a.elapsed > 0 ? (a.rows.length / (a.elapsed / 1000)).toFixed(0) : 0;
+  const bs = a.batteryStart, be = a.batteryEnd;
+  const battTxt = bs && be ? ` · 배터리 ${bs.level}→${be.level}%` : '';
+  li.innerHTML = `
+    <div class="item-head">
+      <span class="item-title"></span>
+      <span class="item-meta">${pad(a.startedAt.getHours())}:${pad(a.startedAt.getMinutes())}:${pad(a.startedAt.getSeconds())}</span>
+    </div>
+    <div class="item-meta">${(a.elapsed/1000).toFixed(1)}초 · ${a.rows.length}행 · 약 ${rate}회/초${battTxt}</div>
+    ${a.stoppedManually ? '<div class="warn">수동 정지됨</div>' : ''}
+    ${a.hiddenDuring ? '<div class="warn">기록 중 화면 꺼짐/전환 → 데이터 끊김 가능</div>' : ''}
+    ${a.rows.length === 0 ? '<div class="warn">데이터 0행 (센서 수신 확인 필요)</div>' : ''}
+    <canvas class="plot"></canvas>
+    <div class="item-btns">
+      <button class="small dl">CSV 저장</button>
+      <button class="small ghost del">삭제</button>
+    </div>`;
+  li.querySelector('.item-title').textContent = `#${a.no} ${a.label}`;
+  li.querySelector('.dl').onclick = () =>
+    download(`${safeName(a.label)}_${pad(a.no,3)}_${stamp(a.startedAt)}.csv`, attemptCsv(a));
+  li.querySelector('.del').onclick = () => {
+    if (!confirm(`#${a.no} ${a.label} 삭제?`)) return;
+    attempts.splice(attempts.indexOf(a), 1);
+    li.remove();
+    $('count').textContent = attempts.length + '건';
+    if (!attempts.length){ $('empty').style.display = ''; $('all').disabled = true; }
+  };
+  $('list').prepend(li);
+  const cv = li.querySelector('canvas');
+  a.canvas = cv;
+  drawPlot(cv, a);
+}
+
+function drawPlot(cv, a){
+  const css = getComputedStyle(document.documentElement);
+  const cPlot = css.getPropertyValue('--plot').trim();
+  const cGrid = css.getPropertyValue('--grid').trim();
+  const cMuted = css.getPropertyValue('--muted').trim();
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const pts = a.rows
+    .filter(r => r[1] != null && r[2] != null && r[3] != null)
+    .map(r => [r[0], Math.hypot(r[1], r[2], r[3])]);
+  const L = 34, R = 8, T = 10, B = 20;
+  const pw = W - L - R, ph = H - T - B;
+  ctx.font = '11px system-ui,sans-serif';
+  ctx.fillStyle = cMuted;
+  if (!pts.length){
+    ctx.fillText('가속도 데이터 없음', L, T + ph / 2);
+    return;
+  }
+  const tMax = Math.max(a.dur * 1000, pts[pts.length - 1][0]);
+  let yMax = Math.max(15, ...pts.map(p => p[1]));
+  yMax = Math.ceil(yMax / 5) * 5;
+  const x = t => L + (t / tMax) * pw;
+  const y = v => T + ph - (v / yMax) * ph;
+
+  // 격자 · 축 눈금
+  ctx.strokeStyle = cGrid; ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const yStep = yMax <= 30 ? 5 : yMax <= 60 ? 10 : 20;
+  for (let v = 0; v <= yMax; v += yStep){
+    ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(L + pw, y(v)); ctx.stroke();
+    ctx.fillText(v, L - 4, y(v));
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const tStep = a.dur <= 5 ? 1000 : a.dur <= 10 ? 2000 : 5000;
+  for (let t = 0; t <= tMax; t += tStep) ctx.fillText((t / 1000) + 's', x(t), T + ph + 4);
+
+  // 중력 기준선 9.8
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = cMuted;
+  ctx.beginPath(); ctx.moveTo(L, y(9.8)); ctx.lineTo(L + pw, y(9.8)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('9.8', L + 2, y(9.8) - 1);
+
+  // 선
+  ctx.strokeStyle = cPlot; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(x(p[0]), y(p[1])) : ctx.moveTo(x(p[0]), y(p[1])));
+  ctx.stroke();
+
+  ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillStyle = cMuted;
+  const peak = Math.max(...pts.map(p => p[1]));
+  ctx.fillText(`|a| 최대 ${peak.toFixed(1)} m/s²`, L + pw, T);
+}
+let resizeT = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => attempts.forEach(a => a.canvas && drawPlot(a.canvas, a)), 150);
+});
+
+/* ---------- 연결 ---------- */
+$('start').onclick = startSensors;
+$('rec').onclick = beginRecord;
+$('all').onclick = () => {
+  if (!attempts.length) return;
+  download(`전체_${attempts.length}건_${stamp(new Date())}.csv`, allCsv());
+};
+window.addEventListener('beforeunload', e => {
+  if (attempts.length){ e.preventDefault(); e.returnValue = ''; }
+});
+
+buildChips();
+buildDurs();
+refreshLabel();
+</script>
+</body>
+</html>
