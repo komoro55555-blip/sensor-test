@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>폰 센서 접근 테스트</title>
+<style>
+:root{
+  --bg:#eef1ee; --ink:#18201b; --muted:#5d6b62; --line:#c9d2cb;
+  --ok:#1d7a46; --bad:#b3261e; --wait:#8a6d00; --panel:#ffffff; --btn:#18201b; --btnink:#eef1ee;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121614; --ink:#e4ebe6; --muted:#93a198; --line:#2c3530;
+    --ok:#5fd18f; --bad:#ff8a80; --wait:#e6c34d; --panel:#1a201c; --btn:#e4ebe6; --btnink:#121614;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121614; --ink:#e4ebe6; --muted:#93a198; --line:#2c3530;
+  --ok:#5fd18f; --bad:#ff8a80; --wait:#e6c34d; --panel:#1a201c; --btn:#e4ebe6; --btnink:#121614;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  line-height:1.5}
+main{max-width:560px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.45rem;margin:4px 0 4px;letter-spacing:-0.01em}
+.sub{color:var(--muted);margin:0 0 18px;font-size:.95rem}
+button{font:inherit;border:0;border-radius:10px;padding:14px 16px;width:100%;
+  background:var(--btn);color:var(--btnink);font-weight:700;font-size:1rem;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line);font-weight:600}
+button:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+ol{list-style:none;padding:0;margin:20px 0 0;border-top:1px solid var(--line)}
+li{display:grid;grid-template-columns:1.6rem 1fr auto;gap:10px;align-items:start;
+  padding:12px 0;border-bottom:1px solid var(--line)}
+.n{color:var(--muted);font-variant-numeric:tabular-nums}
+.name{font-weight:600}
+.detail{color:var(--muted);font-size:.85rem}
+.st{font-weight:700;white-space:nowrap}
+.ok{color:var(--ok)} .bad{color:var(--bad)} .wait{color:var(--wait)}
+.live{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.live h2{font-size:1rem;margin:0 0 8px}
+.grid{display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:4px 12px;font-variant-numeric:tabular-nums;font-size:.9rem}
+.grid .h{color:var(--muted)}
+.note{color:var(--muted);font-size:.85rem;margin-top:16px}
+</style>
+</head>
+<body>
+<main>
+  <h1>폰 센서 접근 테스트</h1>
+  <p class="sub">크롬에서 열고 시작 누름. 결과 화면 캡처해서 전달.</p>
+
+  <button id="start">테스트 시작</button>
+  <div class="row2">
+    <button class="ghost" id="beep">경보음 테스트</button>
+    <button class="ghost" id="vib">진동 테스트</button>
+  </div>
+
+  <ol id="list">
+    <li><span class="n">1</span><span><span class="name">보안 연결(HTTPS)</span><br><span class="detail" id="d-secure">센서 사용 필수 조건</span></span><span class="st wait" id="s-secure">대기</span></li>
+    <li><span class="n">2</span><span><span class="name">가속도</span><br><span class="detail" id="d-acc">devicemotion 수신 여부·초당 횟수</span></span><span class="st wait" id="s-acc">대기</span></li>
+    <li><span class="n">3</span><span><span class="name">자이로(회전 속도)</span><br><span class="detail" id="d-gyro">rotationRate 값 존재 여부</span></span><span class="st wait" id="s-gyro">대기</span></li>
+    <li><span class="n">4</span><span><span class="name">방향(기울기 각도)</span><br><span class="detail" id="d-ori">deviceorientation 수신 여부</span></span><span class="st wait" id="s-ori">대기</span></li>
+    <li><span class="n">5</span><span><span class="name">화면 켜짐 유지</span><br><span class="detail" id="d-wake">Wake Lock</span></span><span class="st wait" id="s-wake">대기</span></li>
+    <li><span class="n">6</span><span><span class="name">진동</span><br><span class="detail" id="d-vib">진동 버튼 눌러서 확인</span></span><span class="st wait" id="s-vib">대기</span></li>
+    <li><span class="n">7</span><span><span class="name">경보음</span><br><span class="detail" id="d-beep">경보음 버튼 눌러서 확인</span></span><span class="st wait" id="s-beep">대기</span></li>
+    <li><span class="n">8</span><span><span class="name">화면 꺼진 동안 센서</span><br><span class="detail" id="d-bg">시작 후 전원 버튼으로 화면 끄고 10초 뒤 다시 켜기</span></span><span class="st wait" id="s-bg">대기</span></li>
+  </ol>
+
+  <section class="live">
+    <h2>실시간 값</h2>
+    <div class="grid">
+      <span class="h"></span><span class="h">x</span><span class="h">y</span><span class="h">z</span>
+      <span class="h">가속도</span><span id="ax">–</span><span id="ay">–</span><span id="az">–</span>
+      <span class="h">회전</span><span id="ra">–</span><span id="rb">–</span><span id="rg">–</span>
+      <span class="h">각도</span><span id="oa">–</span><span id="ob">–</span><span id="og">–</span>
+    </div>
+  </section>
+
+  <p class="note">2~4번 실패 시 링크 환경 문제 가능성 → 다른 호스팅으로 재시도 필요.</p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+function set(key, cls, text, detail){
+  const s = $('s-'+key); s.className = 'st '+cls; s.textContent = text;
+  if(detail !== undefined) $('d-'+key).textContent = detail;
+}
+const f = v => (v==null || isNaN(v)) ? '–' : v.toFixed(2);
+
+let motionCount = 0, gotGyro = false, oriCount = 0, started = false;
+let hiddenAt = null, countAtHide = 0, wakeLock = null, audioCtx = null;
+
+function onMotion(e){
+  motionCount++;
+  const a = e.accelerationIncludingGravity || {};
+  $('ax').textContent=f(a.x); $('ay').textContent=f(a.y); $('az').textContent=f(a.z);
+  const r = e.rotationRate;
+  if(r && (r.alpha!=null || r.beta!=null || r.gamma!=null)){
+    gotGyro = true;
+    $('ra').textContent=f(r.alpha); $('rb').textContent=f(r.beta); $('rg').textContent=f(r.gamma);
+  }
+}
+function onOri(e){
+  oriCount++;
+  $('oa').textContent=f(e.alpha); $('ob').textContent=f(e.beta); $('og').textContent=f(e.gamma);
+}
+
+async function requestWake(){
+  if(!('wakeLock' in navigator)){ set('wake','bad','x','이 브라우저 미지원'); return; }
+  try{
+    wakeLock = await navigator.wakeLock.request('screen');
+    set('wake','ok','o','화면 자동 꺼짐 방지 작동');
+  }catch(err){ set('wake','bad','x', '거부됨: '+err.name); }
+}
+
+$('start').addEventListener('click', async () => {
+  if(started) return; started = true;
+  $('start').textContent = '측정 중…';
+
+  set('secure', window.isSecureContext ? 'ok':'bad', window.isSecureContext ? 'o':'x');
+
+  if(!('DeviceMotionEvent' in window)){
+    set('acc','bad','x','DeviceMotionEvent 없음'); set('gyro','bad','x');
+  }else{
+    try{
+      if(typeof DeviceMotionEvent.requestPermission === 'function'){
+        const p = await DeviceMotionEvent.requestPermission();
+        if(p !== 'granted'){ set('acc','bad','x','권한 거부'); }
+      }
+    }catch(e){}
+    window.addEventListener('devicemotion', onMotion);
+  }
+  if('DeviceOrientationEvent' in window){
+    try{
+      if(typeof DeviceOrientationEvent.requestPermission === 'function'){
+        await DeviceOrientationEvent.requestPermission();
+      }
+    }catch(e){}
+    window.addEventListener('deviceorientation', onOri);
+  }else{
+    set('ori','bad','x','DeviceOrientationEvent 없음');
+  }
+
+  await requestWake();
+
+  // 2초 동안 수신량 측정
+  const c0 = motionCount, o0 = oriCount, t0 = performance.now();
+  setTimeout(() => {
+    const sec = (performance.now()-t0)/1000;
+    const hz = (motionCount-c0)/sec;
+    if(hz >= 5) set('acc','ok','o', '초당 약 '+Math.round(hz)+'회 수신');
+    else if($('s-acc').textContent !== 'x') set('acc','bad','x','2초간 '+(motionCount-c0)+'회 → 차단 가능성');
+    if(gotGyro) set('gyro','ok','o','회전 속도 값 수신');
+    else if(hz >= 5) set('gyro','bad','x','값 비어 있음');
+    else set('gyro','bad','x');
+    const ohz = (oriCount-o0)/sec;
+    if(ohz >= 5) set('ori','ok','o','초당 약 '+Math.round(ohz)+'회 수신');
+    else if($('s-ori').textContent !== 'x') set('ori','bad','x','2초간 '+(oriCount-o0)+'회 → 차단 가능성');
+    set('bg','wait','대기','지금 전원 버튼으로 화면 끄고 10초 뒤 켜기');
+  }, 2000);
+});
+
+document.addEventListener('visibilitychange', async () => {
+  if(!started) return;
+  if(document.visibilityState === 'hidden'){
+    hiddenAt = performance.now(); countAtHide = motionCount;
+  }else if(hiddenAt != null){
+    const sec = (performance.now()-hiddenAt)/1000;
+    const got = motionCount - countAtHide;
+    if(got > sec*5) set('bg','ok','o', sec.toFixed(0)+'초 동안 '+got+'회 수신');
+    else set('bg','bad','x', sec.toFixed(0)+'초 동안 '+got+'회 수신 → 화면 꺼지면 센서 멈춤');
+    hiddenAt = null;
+    if(wakeLock !== null) requestWake();
+  }
+});
+
+$('vib').addEventListener('click', () => {
+  if(!('vibrate' in navigator)){ set('vib','bad','x','미지원'); return; }
+  const r = navigator.vibrate([300,100,300]);
+  set('vib', r ? 'ok':'bad', r ? '?':'x', r ? '진동 느껴지면 o' : '실행 거부');
+});
+
+$('beep').addEventListener('click', () => {
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'square'; o.frequency.value = 2800;
+    g.gain.value = 0.25;
+    o.connect(g); g.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    o.frequency.setValueAtTime(2800,t); o.frequency.setValueAtTime(2200,t+0.25);
+    o.frequency.setValueAtTime(2800,t+0.5); o.frequency.setValueAtTime(2200,t+0.75);
+    o.start(t); o.stop(t+1);
+    set('beep','ok','?','소리 들리면 o (무음 모드 해제 필요)');
+  }catch(e){ set('beep','bad','x', e.name); }
+});
+</script>
+</body>
+</html>
